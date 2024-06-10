@@ -3,7 +3,7 @@
 using MAT
 using GLMakie
 #change the directory for the image your would like to plot 
-#img1_dir="/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-03-24/bead40nm_epi_110deg.mat"
+#img1_dir=" /bead40nm_epi_110deg.mat"
 img1_dir="/Volumes/lidke-lrs/Projects/TIRF Demo/fernando/06-03-24/bead40nm_epi_110deg.mat"
 
 img2_dir="/Volumes/lidke-lrs/Projects/TIRF Demo/fernando/06-03-24/bead40nm_epi_200deg.mat"
