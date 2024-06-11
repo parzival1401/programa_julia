@@ -1,4 +1,4 @@
-
+using JLD2
 
 using MAT
 using GLMakie
@@ -6,7 +6,7 @@ using GLMakie
 #img1_dir=" /bead40nm_epi_110deg.mat"
 img1_dir="/Volumes/lidke-lrs/Projects/TIRF Demo/fernando/06-03-24/bead40nm_epi_110deg.mat"
 
-img2_dir="/Volumes/lidke-lrs/Projects/TIRF Demo/fernando/06-03-24/bead40nm_epi_200deg.mat"
+img2_dir="/Volumes/lidke-lrs/Projects/TIRF Demo/fernando/06-03-24/bead40nm_TIRF_200deg.mat"
 
 
 
@@ -59,8 +59,8 @@ z_slider=SliderGrid(
 z_display_img1= lift(idx_1 -> permutedims(data_img1[:,:,idx_1],[2,1]), z_slider.sliders[1].value)
 z_display_img2= lift(idx_2 -> permutedims(data_img2[:,:,idx_2],[2,1]), z_slider.sliders[1].value)
 heatmap!(ax1,z_display_img1,colormap=:grays)
-heatmap!(ax2,z_display_img2,colormap=:grays)
-
+#heatmap!(ax2,z_display_img2,colormap=:grays)
+heatmap!(ax2,data_img2[132:148,56:72,11],colormap=:grays)
 
 
 display(fig)

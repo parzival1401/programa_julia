@@ -7,9 +7,9 @@ using JLD2
 model_prediction=load("/Volumes/lidke-internal/Personal Folders/Sheng/results/dipole_simulation/slow_dipole_ex001_emx.jld2","model")
 #getting the adrees of all the files in a folder 
 
-general_directory_data = "/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-05-24"
+general_directory_data = "/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-03-24"
 
-names_files = readdir(general_directory_data,sort=true)
+names_files = readdir(general_directory_data)
 
 #fuction to calculate the center of mass 
 
@@ -42,7 +42,7 @@ function join_dir_names(folder, names)
     end
     return paths_general, data
 end
-paths_data, data=join_dir_names(general_directory,names_files)
+paths_data, data=join_dir_names(general_directory_data,names_files)
 
 fig = Figure()
 
@@ -128,8 +128,8 @@ zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,fo
    img_zomm=@view data[angle][x_i:x_f,y_i:y_f,focus]
    x_center,y_center=center_of_mass(img_zomm)
    println(x_center," ",y_center)
-   #println(x_offset," ",y_offset)
-   data[angle][x_i+x_center:x_f+x_center,y_i:y_f,focus]
+   #println(x_offset," ",y_offset)Í
+   data[angle][x_i:x_f,y_i:y_f,focus]
 end
 
 
