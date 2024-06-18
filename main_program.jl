@@ -4,16 +4,17 @@ using Statistics
 using JLD2
 
 
-model_prediction=load("/Volumes/lidke-internal/Personal Folders/Sheng/results/dipole_simulation/slow_dipole_ex001_emx.jld2","model")
+#model_prediction=load("/Volumes/lidke-internal/Personal Folders/Sheng/results/dipole_simulation/slow_dipole_ex001_emx.jld2","model")
+model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","Sheng","results","dipole_simulation","slow_dipole_ex001_emx.jld2"),"model")
+
+
 #getting the adrees of all the files in a folder 
-
-general_directory_data = "/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-03-24"
-
+#general_directory_data = "/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-05-24"
+general_directory_data = joinpath("/Users","fernandodelgado","Documents","university ","summer 2024","intership ","data ","06-05-24")
 names_files = readdir(general_directory_data)
 
 #fuction to calculate the center of mass 
 
-using Statistics
 
 function center_of_mass(array) 
     
@@ -52,8 +53,6 @@ mouse_pos = Observable(Point2f[])
 push!(mouse_pos[],[50,50])
 
 
-
-
 #crete sliders 
 z_slider=SliderGrid(
     fig[2, 1:3],
@@ -62,26 +61,24 @@ z_slider=SliderGrid(
     (label = "E_ex", range = 1:1:size(data[1],3), format = "{1} F", startvalue = 1),
     tellheight = false)
 
-
-
 #define lisenteners 
 img=lift(z_slider.sliders[1].value,z_slider.sliders[2].value) do focus, angle
     data[angle][:,:,focus]
 end
 model=lift(z_slider.sliders[1].value) do focus 
-    model_prediction[:,:,focus]
+    model_prediction[:,:,focus]'
 end
 tittle_graph=lift(z_slider.sliders[2].value) do idx
     names_files[idx]
 end
 
-#define axis of the figure 
+#define axis of theA figure 
 ax1 = Axis(fig[1, 1],
         title = tittle_graph,
         xlabel = "The x label",
         ylabel = "The y label",
         aspect = DataAspect(), 
-        yreversed = true
+        yreversed = true, xzoomlock=true,yzoomlock=true
 )
 ax2 = Axis(fig[1,2],
         title = "zoom",
@@ -95,7 +92,7 @@ ax3 = Axis(fig[1, 3],
         xlabel = "The x label",
         ylabel = "The y label",
         aspect = DataAspect(), 
-        yreversed = false
+        yreversed = true
 )
 
 #mouse recocnition fuction 
@@ -104,9 +101,7 @@ register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
     if event.type === MouseEventTypes.leftclick
         println("$(event.data)")
         push!(mouse_pos[],event.data)
-        notify(mouse_pos)
-        
-        
+        notify(mouse_pos) 
     end
 end
 
@@ -132,12 +127,9 @@ zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,fo
    data[angle][x_i:x_f,y_i:y_f,focus]
 end
 
-
 heatmap!(ax1,img,colormap=:grays)
 heatmap!(ax2,zoom,colormap=:grays)
 heatmap!(ax3,model,colormap=:grays)
-
-
 
 display(fig)
 
