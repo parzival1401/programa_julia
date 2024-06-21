@@ -112,19 +112,22 @@ zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,fo
     mouse_y=-50
     mouse_x=trunc(Int,x[end][1])
     mouse_y=trunc(Int,x[end][2])
-    img_size=[15,15]
-   
+    img_size=[16,16]
     x_ax=img_size[1]÷2
     y_ax=img_size[2]÷2
     y_i,y_f= mouse_y-y_ax ,mouse_y+y_ax
     x_i,x_f= mouse_x-x_ax , mouse_x+x_ax
-
-
-   img_zomm=@view data[angle][x_i:x_f,y_i:y_f,focus]
-   x_center,y_center=center_of_mass(img_zomm)
-   println(x_center," ",y_center)
-   #println(x_offset," ",y_offset)Í
-   data[angle][x_i:x_f,y_i:y_f,focus]
+    img_zomm=@view data[angle][x_i:x_f,y_i:y_f,focus]
+    x_center,y_center=center_of_mass(img_zomm)
+    x_offset= mouse_x-x_ax-x_center
+    y_offset= mouse_y-y_ax-y_center
+    println(mouse_x," ",mouse_y)
+    println(x_center," ",y_center)
+    println(mouse_x-x_center," ",mouse_x+x_center)
+    println(mouse_y-y_center," ",mouse_y+y_center)
+    #data[angle][x_i:x_f,y_i:y_f,focus]
+    data[angle][mouse_x-x_center:mouse_x+x_center,mouse_y-y_center:mouse_y+y_center,focus]
+    
 end
 
 heatmap!(ax1,img,colormap=:grays)
@@ -133,7 +136,7 @@ heatmap!(ax3,model,colormap=:grays)
 
 display(fig)
 
-#save("heatmaps_examples.png",fig)
+
 
 
 
