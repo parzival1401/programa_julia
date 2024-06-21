@@ -85,7 +85,7 @@ ax2 = Axis(fig[1,2],
         xlabel = "The x label",
         ylabel = "The y label",
         aspect = DataAspect(), 
-        yreversed = false
+        yreversed = true
 )
 ax3 = Axis(fig[1, 3],
         title = tittle_graph,
@@ -109,7 +109,7 @@ end
 
 zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,focus,angle
     mouse_x=50
-    mouse_y=-50
+    mouse_y=50
     mouse_x=trunc(Int,x[end][1])
     mouse_y=trunc(Int,x[end][2])
     img_size=[16,16]
@@ -127,7 +127,7 @@ zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,fo
     println(mouse_y-y_center," ",mouse_y+y_center)
     #data[angle][x_i:x_f,y_i:y_f,focus]
     #reset_limits!(ax2)
-    data[angle][mouse_x-x_center:mouse_x+x_center,mouse_y-y_center:mouse_y+y_center,focus]
+    data[angle][mouse_x-x_center:mouse_x+x_center,mouse_y-y_center:mouse_y+y_center,focus]'
     
 end
 
