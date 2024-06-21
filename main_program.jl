@@ -126,6 +126,7 @@ zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,fo
     println(mouse_x-x_center," ",mouse_x+x_center)
     println(mouse_y-y_center," ",mouse_y+y_center)
     #data[angle][x_i:x_f,y_i:y_f,focus]
+    #reset_limits!(ax2)
     data[angle][mouse_x-x_center:mouse_x+x_center,mouse_y-y_center:mouse_y+y_center,focus]
     
 end
