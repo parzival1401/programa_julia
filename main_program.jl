@@ -4,15 +4,11 @@ using Statistics
 using JLD2
 
 
-#model_prediction=load("/Volumes/lidke-internal/Personal Folders/Sheng/results/dipole_simulation/slow_dipole_ex001_emx.jld2","model")
+ 
 model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","Sheng","results","dipole_simulation","slow_dipole_ex001_emx.jld2"),"model")
-
-
-#getting the adrees of all the files in a folder 
-#/Volumes/lidke-lrs/Projects/TIRF Demo/fernando
-#general_directory_data = "/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-05-24"
 general_directory_data = joinpath("/Volumes","lidke-lrs","Projects","TIRF Demo","fernando","06-05-24")
-#general_directory_data = joinpath("/Users","fernandodelgado","Documents","university ","summer 2024","intership ","data ","06-05-24")
+
+
 names_files = readdir(general_directory_data)
 
 #fuction to calculate the center of mass 
