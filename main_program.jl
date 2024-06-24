@@ -9,8 +9,10 @@ model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","S
 
 
 #getting the adrees of all the files in a folder 
+#/Volumes/lidke-lrs/Projects/TIRF Demo/fernando
 #general_directory_data = "/Users/fernandodelgado/Documents/university /summer 2024/intership /data /06-05-24"
-general_directory_data = joinpath("/Users","fernandodelgado","Documents","university ","summer 2024","intership ","data ","06-05-24")
+general_directory_data = joinpath("/Volumes","lidke-lrs","Projects","TIRF Demo","fernando","06-05-24")
+#general_directory_data = joinpath("/Users","fernandodelgado","Documents","university ","summer 2024","intership ","data ","06-05-24")
 names_files = readdir(general_directory_data)
 
 #fuction to calculate the center of mass 
@@ -88,7 +90,7 @@ ax2 = Axis(fig[1,2],
         yreversed = true
 )
 ax3 = Axis(fig[1, 3],
-        title = tittle_graph,
+        title = "slow_dipole_ex001_emx",
         xlabel = "The x label",
         ylabel = "The y label",
         aspect = DataAspect(), 
@@ -125,9 +127,8 @@ zoom=lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value) do x,fo
     println(x_center," ",y_center)
     println(mouse_x-x_center," ",mouse_x+x_center)
     println(mouse_y-y_center," ",mouse_y+y_center)
-    #data[angle][x_i:x_f,y_i:y_f,focus]
-    #reset_limits!(ax2)
-    data[angle][mouse_x-x_center:mouse_x+x_center,mouse_y-y_center:mouse_y+y_center,focus]'
+    data[angle][x_i:x_f,y_i:y_f,focus]
+    #data[angle][mouse_x-x_center:mouse_x+x_center,mouse_y-y_center:mouse_y+y_center,focus]'
     
 end
 
