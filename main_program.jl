@@ -3,10 +3,15 @@ using GLMakie
 using Statistics
 using JLD2
 
-
- 
-model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","Sheng","results","dipole_simulation","slow_dipole_ex001_emx.jld2"),"model")
-general_directory_data = joinpath("/Volumes","lidke-lrs","Projects","TIRF Demo","fernando","06-05-24")
+if Sys.isapple()
+    model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","Sheng","results","dipole_simulation","slow_dipole_ex001_emx.jld2"),"model")
+    general_directory_data = joinpath("/Volumes","lidke-lrs","Projects","TIRF Demo","fernando","06-05-24") 
+elseif Sys.iswindows()
+    #Z:\Personal Folders
+    general_directory_data = "Y:\\Projects\\TIRF Demo\\fernando\\06-05-24"
+    model_prediction=load("Z:\\Personal Folders\\Sheng\\results\\dipole_simulation\\slow_dipole_ex001_emx.jld2","model")
+    
+end
 
 
 names_files = readdir(general_directory_data)
