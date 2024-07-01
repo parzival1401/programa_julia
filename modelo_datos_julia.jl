@@ -14,68 +14,6 @@ dipole_ang = [0,0].*pi./180
 p=PSF.Dipole3D(na,λ,n,pixelsize,dipole_ang;normf =1.0, ksize=128,excitationfield=1.0,mvtype="stage") # scalar excitation, for fast rotating dipole
 #p=PSF.Dipole3D(na,λ,n,pixelsize,dipole_ang;normf =normf, ksize=128,excitationfield=[0,0,1],mvtype="stage") # polarized excitation, for slow rotating dipole
 
-# join all the images 
-data_x = Vector{Any}()
-data_y = Vector{Any}()
-data= Vector{Any}()
-angles_x = Vector{Any}()
-angles_y = Vector{Any}()
-sz=40
-roi=[(y,x,0) for y=1:sz, x=1:sz] 
-pos_emitter = (sz/2,sz/2,0.0)
-id_x,id_y=1,1
-for i in 45:3:90
-    push!(angles_x,i*pi/180)
-end
-for i in 45:3:90
-push!(angles_y,i*pi/180)
-end
-
-for i in 1:round(Int,size(angles_x,1))
-    #for k in 1:round(Int,size(angles_y,1))
-        angl=[r1[i,1],r1[i,2]]
-        #angl=[angles_x[i],angles_y[k]]
-        p=PSF.Dipole3D(na,λ,n,pixelsize,angl;normf =1.0, ksize=128,excitationfield=1.0,mvtype="stage")
-        hx = p.pupilfunctionx.pupil[:,:,1].*exp.(im*p.pupilfunctionx.pupil[:,:,2])
-        hy = p.pupilfunctiony.pupil[:,:,1].*exp.(im*p.pupilfunctiony.pupil[:,:,2])
-        p.electricfield = 'x'
-        imx=PSF.pdf(p,roi,pos_emitter)
-        p.electricfield = 'y'
-        imy=PSF.pdf(p,roi,pos_emitter)
-        fig = Figure(size = (600, 300))
-        ax = CM.Axis(fig[1, 1],title="Ex psf",aspect=1)
-        hm = CM.heatmap!(ax, imx,colormap=:inferno)
-        hidedecorations!(ax)
-        ax = CM.Axis(fig[1, 2],title="Ey psf",aspect=1)
-        hm = CM.heatmap!(ax, imy,colormap=:inferno)
-        hidedecorations!(ax)
-        suma=imx.+imy
-        push!(data_y,imy)
-        push!(data_x,imx)
-        push!(data,suma)
-        display(fig)
-        println(angl)
-   # end
-
-end
-sum_arr = zeros(size(data[1]))
-idx = 1
-for i in 1:size(data,1)    
-    #fig = Figure(size = (600, 300))
-    #ax = CM.Axis(fig[1, 1],title="Ex",aspect=1,titlesize=20)
-    #CM.heatmap!(ax,suma,colormap=:inferno)
-    sum_arr = sum_arr.+data[idx]
-    #display(fig)
-    idx+=1 
-end
-fig = Figure(size = (400, 400))
-ax = CM.Axis(fig[1, 1],title=" 45:3:90 x and 45:3:90 y ",aspect=1,titlesize=20)
-CM.heatmap!(ax,data[12],colormap=:inferno)
-display(fig)
-
-
-
-
 
 #look at pupil
 hx = p.pupilfunctionx.pupil[:,:,1].*exp.(im*p.pupilfunctionx.pupil[:,:,2])
@@ -138,6 +76,7 @@ for j=eachindex(pos)
     print("\n")
 end
 
+
 # generate isotropic dipole angles
 Nθ = 12
 ang = []
@@ -164,10 +103,139 @@ x = sin.(α).*cos.(β)
 y = sin.(α).*sin.(β)
 r = hcat(x,y,z)
 r1 = sortslices(r,dims=1,by=x->x[3],rev=true)
-fig = Figure(size = (400, 400))
+fig = Figure()
 ax = CM.Axis3(fig[1, 1],aspect = :equal,xlabel="x",ylabel="y",zlabel="z")
-CM.scatter!(ax,r1[:,1],r1[:,2],r1[:,3],markersize=10,marker=:circle)
+CM.scatter!(ax,r1,markersize=10,marker=:circle)
 CM.lines!(ax,r1[:,1],r1[:,2],r1[:,3])
 fig
 
-        
+
+
+#########################################
+#########################################
+# join all the images 
+angles_x = Vector{Any}()
+angles_y = Vector{Any}()
+sz=40
+roi=[(y,x,0) for y=1:sz, x=1:sz] 
+pos_emitter = (sz/2,sz/2,0.0)
+
+### angles 
+N_angles = 6
+angles = Vector{Any}()
+θ = Array(range(0, pi, N_angles))
+dθ = θ[2] - θ[1]
+dΩ = dθ^2
+for i in eachindex(θ)
+    if θ[i] == 0 
+        push!(angles,[θ[i],0])
+    end
+    dϕ = dΩ/(sin(θ[i])*dθ)
+    Number_ϕ = round(Int, 2 * pi / dϕ)
+    for k in 0:Number_ϕ
+        if k * dϕ <=(2 * pi)
+            push!(angles, [θ[i], k * dϕ])
+        end
+    end
+end
+
+# plot dipole angles
+anglesθ = zeros(size(angles,1))
+anglesϕ = zeros(size(angles,1))
+for idx in 1:size(angles,1)
+    anglesθ[idx] = angles[idx][end-1]
+    anglesϕ[idx] = angles[idx][end]
+end
+z = cos.(anglesθ)    
+x = sin.(anglesθ).*cos.(anglesϕ)
+y = sin.(anglesθ).*sin.(anglesϕ)
+fig = Figure()
+ax = CM.Axis3(fig[1, 1],aspect = :equal,xlabel="x",ylabel="y",zlabel="z")
+CM.scatter!(ax,x,y,z,markersize=10,marker=:circle)
+CM.lines!(ax,x,y,z)
+fig
+
+# loop for sum the images in multiple z posistions 
+xe = sz/2
+ye = sz/2
+pos = [(ye,xe,k) for k=-1.0:0.1:1.0]
+out = zeros(sz,sz,length(pos))
+z_stack_y= Vector{Any}()
+z_stack_x = Vector{Any}()
+z_stack = Vector{Any}()
+suma_gen = Vector{Any}()
+for j=eachindex(pos)
+    data_x = zeros(sz,sz)
+    data_y = zeros(sz,sz)
+    data = Vector{Any}()
+    sum_data_gen = zeros(sz,sz)
+    for i in eachindex(angles)
+        angl=[angles[i][end-1],angles[i][end]]
+        p=PSF.Dipole3D(na,λ,n,pixelsize,angl;normf =1.0, ksize=128,excitationfield=[0,0,1],mvtype="stage")
+        p.electricfield = 'x'
+        imx=PSF.pdf(p,roi,pos[j])
+        p.electricfield = 'y'
+        imy=PSF.pdf(p,roi,pos[j])
+        suma=imx.+imy
+        data_x .+=+imx
+        data_y .+=imy
+        sum_data_gen .+=suma
+        push!(data,suma)
+        println(angl)
+    end
+    push!(suma_gen,sum_data_gen)
+    push!(z_stack,data)
+    push!(z_stack_x,data_x)
+    push!(z_stack_y,data_y)
+    fig = Figure()
+    ax = CM.Axis(fig[1,1],title = " zstack",yreversed = true,aspect=1)
+    CM.heatmap!(ax,suma_gen[end]',colormap=:inferno)
+    ax = CM.Axis(fig[1,2],title = " zstack_x",yreversed = true,aspect=1)
+    CM.heatmap!(ax,z_stack_x[end]',colormap=:inferno)
+    ax = CM.Axis(fig[1,3],title = " zstack_y",yreversed = true,aspect=1)
+    CM.heatmap!(ax,z_stack_y[end]',colormap=:inferno)
+    display(fig)
+
+end
+
+
+fig = Figure()
+ax = CM.Axis(fig[1,1],title = " zstack",aspect=1,yreversed = true)
+CM.heatmap!(ax,z_stack_y[1]',colormap=:inferno)
+display(fig)
+           
+##### only at one z position
+data_x = Vector{Any}()
+data_y = Vector{Any}()
+data = Vector{Any}()
+    for i in eachindex(angles)
+        angl=[angles[i][end-1],angles[i][end]]
+        p=PSF.Dipole3D(na,λ,n,pixelsize,angl;normf =1.0, ksize=128,excitationfield=[0,1,0],mvtype="stage")
+        p.electricfield = 'x'
+        imx=PSF.pdf(p,roi,pos_emitter)
+        p.electricfield = 'y'
+        imy=PSF.pdf(p,roi,pos_emitter)
+        suma=imx.+imy
+        push!(data_y,imy)
+        push!(data_x,imx)
+        push!(data,suma)
+        println(angl)
+    end 
+sum_arr = zeros(size(data[1]))
+sum_x =zeros(size(data_x[1]))
+sum_y=zeros(size(data_y[1]))
+
+for i in 1:size(data,1)  
+    sum_arr = sum_arr.+data[i]
+    sum_x= sum_x.+data_x[i]
+    sum_y= sum_y.+data_y[i]  
+end
+
+fig = Figure()
+ax = CM.Axis(fig[1, 1],title="total",aspect=1,yreversed= true)
+CM.heatmap!(ax,sum_arr,colormap=:inferno)
+ax = CM.Axis(fig[1, 2],title="polarixation x",aspect=1,yreversed= true)
+CM.heatmap!(ax,sum_x',colormap=:inferno)
+ax = CM.Axis(fig[1, 1],title=" polarization y ",aspect=1,yreversed= true)
+CM.heatmap!(ax,sum_y',colormap=:inferno)
+display(fig)

@@ -1,0 +1,240 @@
+using MAT
+using GLMakie
+using Statistics
+using JLD2
+
+if Sys.isapple()
+    model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","Sheng","results","dipole_simulation","slow_dipole_ex001_emx.jld2"),"model")
+    general_directory_data = joinpath("/Volumes","lidke-lrs","Projects","TIRF Demo","fernando","06-05-24") 
+elseif Sys.iswindows()
+    general_directory_data = "Y:\\Projects\\TIRF Demo\\fernando\\06-05-24"
+    model_prediction=load("Z:\\Personal Folders\\Sheng\\results\\dipole_simulation\\slow_dipole_ex001_emx.jld2","model")  
+end
+
+
+names_files_all = readdir(general_directory_data,sort=true)
+names_files_epi= filter(!contains(r"TIRF*"), readdir(general_directory_data))
+names_files_tirf = filter(!contains(r"epi*"), readdir(general_directory_data))
+names_files = deepcopy(names_files_tirf)
+#fuction to calculate the center of mass 
+
+
+function center_of_mass(array) 
+    
+    x_coords = repeat(1:size(array, 1), outer=(size(array, 1), 1))
+    y_coords = reshape(repeat([1:size(array, 1);], inner=(size(array, 2))), size(array))
+    
+    total_mass = sum(array)
+    
+    center_x = round(Int, sum(x_coords .* array[:]) / total_mass)
+    center_y = round(Int, sum(y_coords .* array) / total_mass)
+    
+    return center_x, center_y
+end
+
+
+function join_dir_names(folder, names)
+    paths_general = Vector{String}()
+    data = Vector{Any}()  # Initialize an empty vector
+    for i in names
+        path = joinpath(folder, i)  # Join folder and file name
+        push!(paths_general, path)
+        open_file = matopen(path)
+        var = read(open_file, "ZStack")
+        close(open_file)  # Close the file
+        push!(data, var)
+    end
+    return paths_general, data
+end
+paths_data_all, data_all=join_dir_names(general_directory_data,names_files)
+paths_data_epi, data_epi = join_dir_names(general_directory_data,names_files_epi)
+paths_data_tirf, data_tirf = join_dir_names(general_directory_data,names_files_tirf)
+data = deepcopy(data_tirf)
+fig = Figure(size=(1700,1000))
+#### sample image size
+img_size=[16,16]
+
+#click recocnition Initialization fo observables 
+
+mouse_pos = Observable(Point2f[])
+push!(mouse_pos[],[50,50])
+
+# menu for microscope mode
+microscope_options = ["EPI","TIRF"]
+menu = Menu(fig, options = microscope_options,default = "EPI")
+fig[3,3] = vgrid!(Label(fig,"microscope mode",width = nothing),menu)
+#crete sliders 
+z_slider=SliderGrid(
+    fig[4, 1:5],
+    (label = "xy Focus", range = 1:1:size(data[1],3), format = "{1} F", startvalue = round(Int,size(data[1],3)/2)),
+    (label = "polarization", range = 1:1:size(data,1), format = "{1} F", startvalue = 1),
+    (label = "xz focus", range = -img_size[1]:1:img_size[1], format = "{1} F", startvalue = 1),
+    (label = "xz Focus ", range = -img_size[2]:1:img_size[2], format = "{1} F", startvalue = 1),
+    tellheight = false)
+#menu options 
+on(menu.selection) do mode 
+    if mode == microscope_options[1]
+        data = data_epi
+        names_files = names_files_epi
+        println("epi")
+    elseif mode == microscope_options[2]
+        data = data_epi
+        names_files = names_files_tirf
+        println("tirf")
+    end
+end
+
+
+
+
+
+
+
+#define lisenteners 
+
+lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value,z_slider.sliders[3].value,z_slider.sliders[4].value,menu.selection) do x,focus,angle,xz,yz,mode
+    
+    #=img_zomm=@view data[angle][x_i:x_f,y_i:y_f,focus]
+    x_center,y_center=center_of_mass(img_zomm)
+    x_offset= mouse_x-x_ax-x_center
+    y_offset= mouse_y-y_ax-y_center
+    println(mouse_x," ",mouse_y)
+    println(x_center," ",y_center)
+    println(mouse_x-x_center," ",mouse_x+x_center)
+    println(mouse_y-y_center," ",mouse_y+y_center)=#
+    if mode == microscope_options[1]
+        ax1 = Axis(fig[1:2, 1:2],
+        title = names_files_epi[angle],
+        aspect = DataAspect(), 
+        yreversed = true, xzoomlock=true,yzoomlock=true
+        )
+        ax2 = Axis(fig[1,3],
+                title = "xy data",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax3 = Axis(fig[1, 4],
+                title = "xz data",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax4 = Axis(fig[1,5],
+                title = "yz data",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax5 = Axis(fig[2, 3],
+                title = "xy model",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax6 = Axis(fig[2, 4],
+                title = "xz model",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax7 = Axis(fig[2, 5],
+                title = "yz model",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
+   
+            if event.type === MouseEventTypes.leftclick
+                println("$(event.data)")
+                push!(mouse_pos[],event.data)
+                notify(mouse_pos) 
+            end
+        end
+        mouse_x=139
+        mouse_y=56
+        mouse_x=trunc(Int,x[end][1])
+        mouse_y=trunc(Int,x[end][2])
+        x_ax=img_size[1]÷2
+        y_ax=img_size[2]÷2
+        y_i,y_f= mouse_y-y_ax ,mouse_y+y_ax
+        x_i,x_f= mouse_x-x_ax , mouse_x+x_ax
+        heatmap!(ax1,data_epi[angle][:,:,focus]',colormap=:inferno )
+        heatmap!(ax2,data_epi[angle][x_i:x_f,y_i:y_f,focus],colormap=:inferno)
+        heatmap!(ax3,data_epi[angle][mouse_x+xz,y_i:y_f,:]',colormap=:inferno)
+        heatmap!(ax4,data_epi[angle][x_i:x_f,mouse_y+yz,:]',colormap=:inferno)
+        heatmap!(ax5,model_prediction[:,:,focus]',colormap=:inferno)
+        heatmap!(ax6,model_prediction[:,9,:]',colormap=:inferno)
+        heatmap!(ax7,model_prediction[9,:,:]',colormap=:inferno)
+    elseif mode == microscope_options[2]
+        ax1 = Axis(fig[1:2, 1:2],
+        title = names_files_tirf[angle],
+        aspect = DataAspect(), 
+        yreversed = true, xzoomlock=true,yzoomlock=true
+        )
+        ax2 = Axis(fig[1,3],
+                title = "xy data",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax3 = Axis(fig[1, 4],
+                title = "xz data",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax4 = Axis(fig[1,5],
+                title = "yz data",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax5 = Axis(fig[2, 3],
+                title = "xy model",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax6 = Axis(fig[2, 4],
+                title = "xz model",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        ax7 = Axis(fig[2, 5],
+                title = "yz model",
+                aspect = DataAspect(), 
+                yreversed = true
+        )
+        register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
+   
+            if event.type === MouseEventTypes.leftclick
+                println("$(event.data)")
+                push!(mouse_pos[],event.data)
+                notify(mouse_pos) 
+            end
+        end
+        mouse_x=139
+        mouse_y=56
+        mouse_x=trunc(Int,x[end][1])
+        mouse_y=trunc(Int,x[end][2])
+        x_ax=img_size[1]÷2
+        y_ax=img_size[2]÷2
+        y_i,y_f= mouse_y-y_ax ,mouse_y+y_ax
+        x_i,x_f= mouse_x-x_ax , mouse_x+x_ax
+        heatmap!(ax1,data_epi[angle][:,:,focus],colormap=:inferno )
+        heatmap!(ax2,data_tirf[angle][x_i:x_f,y_i:y_f,focus],colormap=:inferno)
+        heatmap!(ax3,data_tirf[angle][mouse_x+xz,y_i:y_f,:]',colormap=:inferno)
+        heatmap!(ax4,data_tirf[angle][x_i:x_f,mouse_y+yz,:]',colormap=:inferno)
+        heatmap!(ax5,model_prediction[:,:,focus]',colormap=:inferno)
+        heatmap!(ax6,model_prediction[:,9,:]',colormap=:inferno)
+        heatmap!(ax7,model_prediction[9,:,:]',colormap=:inferno)
+    end
+
+hidedecorations!(ax1)
+hidedecorations!(ax2)
+hidedecorations!(ax3)
+hidedecorations!(ax4)
+hidedecorations!(ax5)
+hidedecorations!(ax6)
+hidedecorations!(ax7)
+return display(fig)
+
+end
+
+
+
+
+
+
