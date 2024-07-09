@@ -1,240 +1,273 @@
-using MAT
-using GLMakie
-using Statistics
-using JLD2
+using MAT, GLMakie, Statistics, JLD2
 
-if Sys.isapple()
-    model_prediction=load(joinpath("/Volumes","lidke-internal","Personal Folders","Sheng","results","dipole_simulation","slow_dipole_ex001_emx.jld2"),"model")
-    general_directory_data = joinpath("/Volumes","lidke-lrs","Projects","TIRF Demo","fernando","06-05-24") 
-elseif Sys.iswindows()
-    general_directory_data = "Y:\\Projects\\TIRF Demo\\fernando\\06-05-24"
-    model_prediction=load("Z:\\Personal Folders\\Sheng\\results\\dipole_simulation\\slow_dipole_ex001_emx.jld2","model")  
+# Helper functions
+
+function filter_files(dir, pattern)
+    # Filter files in a directory based on a regex pattern
+    filter(name -> occursin(pattern, name), readdir(dir, sort=true))
 end
 
-
-names_files_all = readdir(general_directory_data,sort=true)
-names_files_epi= filter(!contains(r"TIRF*"), readdir(general_directory_data))
-names_files_tirf = filter(!contains(r"epi*"), readdir(general_directory_data))
-names_files = deepcopy(names_files_tirf)
-#fuction to calculate the center of mass 
-
-
 function center_of_mass(array) 
-    
+    # Calculate the center of mass of a 2D array
     x_coords = repeat(1:size(array, 1), outer=(size(array, 1), 1))
     y_coords = reshape(repeat([1:size(array, 1);], inner=(size(array, 2))), size(array))
-    
     total_mass = sum(array)
-    
     center_x = round(Int, sum(x_coords .* array[:]) / total_mass)
     center_y = round(Int, sum(y_coords .* array) / total_mass)
-    
     return center_x, center_y
 end
 
-
-function join_dir_names(folder, names)
-    paths_general = Vector{String}()
-    data = Vector{Any}()  # Initialize an empty vector
-    for i in names
-        path = joinpath(folder, i)  # Join folder and file name
-        push!(paths_general, path)
-        open_file = matopen(path)
-        var = read(open_file, "ZStack")
-        close(open_file)  # Close the file
+function load_mat_data(folder, names, variable)
+    # Load data from MAT files
+    paths = String[]
+    data = Any[]
+    for name in names
+        path = joinpath(folder, name)
+        push!(paths, path)
+        open_file = MAT.matopen(path)
+        var = read(open_file, variable)
+        close(open_file)
         push!(data, var)
     end
-    return paths_general, data
+    return paths, data
 end
-paths_data_all, data_all=join_dir_names(general_directory_data,names_files)
-paths_data_epi, data_epi = join_dir_names(general_directory_data,names_files_epi)
-paths_data_tirf, data_tirf = join_dir_names(general_directory_data,names_files_tirf)
-data = deepcopy(data_tirf)
-fig = Figure(size=(1700,1000))
-#### sample image size
-img_size=[16,16]
 
-#click recocnition Initialization fo observables 
+function load_jld2_data(folder, names, variable)
+    # Load data from JLD2 files
+    paths = String[]
+    data = Any[]
+    for name in names
+        path = joinpath(folder, name)
+        println(path)
+        push!(paths, path)
+        var = JLD2.load(path, variable)
+        push!(data, var)
+    end
+    return paths, data
+end
 
-mouse_pos = Observable(Point2f[])
-push!(mouse_pos[],[50,50])
+function get_model_size(model_arr, angle, img_size)
+    # Get the size and midpoints of the model array
+    size_x, size_y, size_z = size(model_arr[angle])
+    midle_point_z = round(Int, size_z/2)
+    midle_point_x = round(Int, size_x/2)
+    midle_point_y = round(Int, size_y/2)
+    return size_x, size_y, size_z, midle_point_x, midle_point_y, midle_point_z
+end
 
-# menu for microscope mode
-microscope_options = ["EPI","TIRF"]
-menu = Menu(fig, options = microscope_options,default = "EPI")
-fig[3,3] = vgrid!(Label(fig,"microscope mode",width = nothing),menu)
-#crete sliders 
-z_slider=SliderGrid(
-    fig[4, 1:5],
-    (label = "xy Focus", range = 1:1:size(data[1],3), format = "{1} F", startvalue = round(Int,size(data[1],3)/2)),
-    (label = "polarization", range = 1:1:size(data,1), format = "{1} F", startvalue = 1),
-    (label = "xz focus", range = -img_size[1]:1:img_size[1], format = "{1} F", startvalue = 1),
-    (label = "xz Focus ", range = -img_size[2]:1:img_size[2], format = "{1} F", startvalue = 1),
-    tellheight = false)
-#menu options 
-on(menu.selection) do mode 
-    if mode == microscope_options[1]
-        data = data_epi
-        names_files = names_files_epi
-        println("epi")
-    elseif mode == microscope_options[2]
-        data = data_epi
-        names_files = names_files_tirf
-        println("tirf")
+function create_focus_controls(fig, row, col, z_slider_index)
+    # Create focus control elements (buttons and slider)
+    grid = GridLayout(tellwidth=false)
+    fig[row, col] = grid
+    buttons = grid[3:4,1] = [Button(fig, label="+1 focus", width=150), Button(fig, label="-1 focus", width=150)]
+    slider = Slider(grid[5,1], range = 0:1:1)
+    Label(grid[5,0], "no snap", justification = :left)
+    Label(grid[5,2], "snap", justification = :left)
+    return grid, buttons, slider, z_slider_index
+end
+
+function create_image_listener(z_slider, menu, data_epi, data_tirf)
+    # Create a listener for the main image
+    lift(z_slider.sliders[2].value, z_slider.sliders[1].value, menu.selection) do focus, angle, mode
+        data = mode == microscope_options[1] ? data_epi : data_tirf
+        return data[angle][:,:,focus]
     end
 end
 
-
-
-
-
-
-
-#define lisenteners 
-
-lift(mouse_pos,z_slider.sliders[1].value,z_slider.sliders[2].value,z_slider.sliders[3].value,z_slider.sliders[4].value,menu.selection) do x,focus,angle,xz,yz,mode
+function create_model_listener(buttons, z_slider, menu, model_epi, model_tirf, dim, snap_slider, z_index)
+    button_offset = Observable(0)
     
-    #=img_zomm=@view data[angle][x_i:x_f,y_i:y_f,focus]
-    x_center,y_center=center_of_mass(img_zomm)
-    x_offset= mouse_x-x_ax-x_center
-    y_offset= mouse_y-y_ax-y_center
-    println(mouse_x," ",mouse_y)
-    println(x_center," ",y_center)
-    println(mouse_x-x_center," ",mouse_x+x_center)
-    println(mouse_y-y_center," ",mouse_y+y_center)=#
-    if mode == microscope_options[1]
-        ax1 = Axis(fig[1:2, 1:2],
-        title = names_files_epi[angle],
-        aspect = DataAspect(), 
-        yreversed = true, xzoomlock=true,yzoomlock=true
-        )
-        ax2 = Axis(fig[1,3],
-                title = "xy data",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax3 = Axis(fig[1, 4],
-                title = "xz data",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax4 = Axis(fig[1,5],
-                title = "yz data",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax5 = Axis(fig[2, 3],
-                title = "xy model",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax6 = Axis(fig[2, 4],
-                title = "xz model",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax7 = Axis(fig[2, 5],
-                title = "yz model",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
-   
-            if event.type === MouseEventTypes.leftclick
-                println("$(event.data)")
-                push!(mouse_pos[],event.data)
-                notify(mouse_pos) 
-            end
-        end
-        mouse_x=139
-        mouse_y=56
-        mouse_x=trunc(Int,x[end][1])
-        mouse_y=trunc(Int,x[end][2])
-        x_ax=img_size[1]÷2
-        y_ax=img_size[2]÷2
-        y_i,y_f= mouse_y-y_ax ,mouse_y+y_ax
-        x_i,x_f= mouse_x-x_ax , mouse_x+x_ax
-        heatmap!(ax1,data_epi[angle][:,:,focus]',colormap=:inferno )
-        heatmap!(ax2,data_epi[angle][x_i:x_f,y_i:y_f,focus],colormap=:inferno)
-        heatmap!(ax3,data_epi[angle][mouse_x+xz,y_i:y_f,:]',colormap=:inferno)
-        heatmap!(ax4,data_epi[angle][x_i:x_f,mouse_y+yz,:]',colormap=:inferno)
-        heatmap!(ax5,model_prediction[:,:,focus]',colormap=:inferno)
-        heatmap!(ax6,model_prediction[:,9,:]',colormap=:inferno)
-        heatmap!(ax7,model_prediction[9,:,:]',colormap=:inferno)
-    elseif mode == microscope_options[2]
-        ax1 = Axis(fig[1:2, 1:2],
-        title = names_files_tirf[angle],
-        aspect = DataAspect(), 
-        yreversed = true, xzoomlock=true,yzoomlock=true
-        )
-        ax2 = Axis(fig[1,3],
-                title = "xy data",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax3 = Axis(fig[1, 4],
-                title = "xz data",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax4 = Axis(fig[1,5],
-                title = "yz data",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax5 = Axis(fig[2, 3],
-                title = "xy model",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax6 = Axis(fig[2, 4],
-                title = "xz model",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        ax7 = Axis(fig[2, 5],
-                title = "yz model",
-                aspect = DataAspect(), 
-                yreversed = true
-        )
-        register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
-   
-            if event.type === MouseEventTypes.leftclick
-                println("$(event.data)")
-                push!(mouse_pos[],event.data)
-                notify(mouse_pos) 
-            end
-        end
-        mouse_x=139
-        mouse_y=56
-        mouse_x=trunc(Int,x[end][1])
-        mouse_y=trunc(Int,x[end][2])
-        x_ax=img_size[1]÷2
-        y_ax=img_size[2]÷2
-        y_i,y_f= mouse_y-y_ax ,mouse_y+y_ax
-        x_i,x_f= mouse_x-x_ax , mouse_x+x_ax
-        heatmap!(ax1,data_epi[angle][:,:,focus],colormap=:inferno )
-        heatmap!(ax2,data_tirf[angle][x_i:x_f,y_i:y_f,focus],colormap=:inferno)
-        heatmap!(ax3,data_tirf[angle][mouse_x+xz,y_i:y_f,:]',colormap=:inferno)
-        heatmap!(ax4,data_tirf[angle][x_i:x_f,mouse_y+yz,:]',colormap=:inferno)
-        heatmap!(ax5,model_prediction[:,:,focus]',colormap=:inferno)
-        heatmap!(ax6,model_prediction[:,9,:]',colormap=:inferno)
-        heatmap!(ax7,model_prediction[9,:,:]',colormap=:inferno)
+    on(buttons[1].clicks) do n
+        button_offset[] += 1
+    end
+    
+    on(buttons[2].clicks) do n
+        button_offset[] -= 1
     end
 
-hidedecorations!(ax1)
-hidedecorations!(ax2)
-hidedecorations!(ax3)
-hidedecorations!(ax4)
-hidedecorations!(ax5)
-hidedecorations!(ax6)
-hidedecorations!(ax7)
-return display(fig)
+    lift(button_offset, z_slider.sliders[1].value, menu.selection, snap_slider.value, z_slider.sliders[z_index].value) do offset, angle, mode, snap, slider_value
+        model = mode == microscope_options[1] ? model_epi : model_tirf
+        size_x, size_y, size_z, midle_point_x, midle_point_y, midle_point_z = get_model_size(model, angle, img_size)
+        
+        max_index = dim == :xy ? size_z : (dim == :xz ? size_y : size_x)
+        
+        effective_point = if dim == :xy
+            midle_point_z
+        elseif dim == :xz
+            midle_point_y
+        else # yz
+            midle_point_x
+        end
 
+        if snap == 1
+            effective_point = slider_value
+        else
+            effective_point = clamp(effective_point + offset, 1, max_index)
+        end
+        
+        slice = if dim == :xy
+            model[angle][max(1, midle_point_x-img_mid_x+1):min(size_x, midle_point_x+img_mid_x), 
+                         max(1, midle_point_y-img_mid_y+1):min(size_y, midle_point_y+img_mid_y), 
+                         effective_point]
+        elseif dim == :xz
+            model[angle][max(1, midle_point_x-img_mid_x+1):min(size_x, midle_point_x+img_mid_x), 
+                         effective_point, :]
+        else  # yz
+            model[angle][effective_point, 
+                         max(1, midle_point_y-img_mid_y+1):min(size_y, midle_point_y+img_mid_y), :]
+        end
+        
+        return slice
+    end
 end
 
+function create_title_listener(z_slider, menu, names_epi, names_tirf)
+    # Create a listener for the graph titles
+    lift(z_slider.sliders[1].value, menu.selection) do idx, mode
+        names = mode == microscope_options[1] ? names_epi : names_tirf
+        return names[idx][1:end-4]
+    end
+end
 
+function create_axis(fig; title="", subtitle="", sz_title=22, sz_subtitle=17)
+    # Create an axis with specified properties
+    Axis(fig,
+        title = title,
+        subtitle = subtitle,
+        aspect = DataAspect(), 
+        yreversed = true,
+        titlesize = sz_title,
+        subtitlesize = sz_subtitle
+    )
+end
 
+function create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, dim)
+    # Create a listener for the image slices
+    lift(mouse_pos, z_slider.sliders[dim == :xy ? 2 : (dim == :xz ? 3 : 4)].value, z_slider.sliders[1].value, menu.selection) do x, focus, angle, mode
+        mouse_x, mouse_y = trunc.(Int, x[end])
+        x_ax, y_ax = img_size .÷ 2
+        y_i, y_f = mouse_y - y_ax, mouse_y + y_ax
+        x_i, x_f = mouse_x - x_ax, mouse_x + x_ax
+        
+        data = mode == microscope_options[1] ? data_epi : data_tirf
+        
+        slice = if dim == :xy
+            data[angle][x_i:x_f, y_i:y_f, focus]
+        elseif dim == :xz
+            data[angle][mouse_x + focus, y_i:y_f, :]
+        else  # yz
+            data[angle][x_i:x_f, mouse_y + focus, :]
+        end
+        
+        return slice
+    end
+end
 
+function main()
+    # Main function to run the program
 
+    # Define directories based on operating system
+    if Sys.isapple()
+        model_prediction_dir = joinpath("/Volumes", "lidke-lrs", "Projects", "TIRF Demo", "fernando", "model_data") 
+        general_directory_data = joinpath("/Volumes", "lidke-lrs", "Projects", "TIRF Demo", "fernando", "06-17-24") 
+    elseif Sys.iswindows()
+        general_directory_data = "Y:\\Projects\\TIRF Demo\\fernando\\06-17-24"
+        model_prediction_dir = "Y:\\Projects\\TIRF Demo\\fernando\\model_data"
+    end
 
+    # Load data and model
+    names_files_model_all = filter_files(model_prediction_dir, r"epi|TIRF")
+    names_files_epi_model = filter_files(model_prediction_dir, r"epi|EPI")
+    names_files_tirf_model = filter_files(model_prediction_dir, r"tirf|TIRF")
+
+    names_files_data_all = filter_files(general_directory_data, r"epi|TIRF|tirf|EPI")
+    names_files_epi_data = filter_files(general_directory_data, r"epi|EPI")
+    names_files_tirf_data = filter_files(general_directory_data, r"tirf|TIRF")
+
+    paths_data_all, data_all = load_mat_data(general_directory_data, names_files_data_all, "ZStack")
+    paths_data_epi, data_epi = load_mat_data(general_directory_data, names_files_epi_data, "ZStack")
+    paths_data_tirf, data_tirf = load_mat_data(general_directory_data, names_files_tirf_data, "ZStack")
+
+    paths_model_all, model_all = load_jld2_data(model_prediction_dir, names_files_model_all, "model")
+    paths_model_epi, model_epi = load_jld2_data(model_prediction_dir, names_files_epi_model, "model")
+    paths_model_tirf, model_tirf = load_jld2_data(model_prediction_dir, names_files_tirf_model, "model")
+
+    # Create figure and set up GUI elements
+    fig = Figure(size=(1725,1000))
+
+    mouse_pos = Observable(Point2f[])
+    push!(mouse_pos[], [50,50])
+
+    global microscope_options = ["EPI", "TIRF"]
+    menu = Menu(fig, options = microscope_options, default = "EPI")
+    fig[3,1:2] = vgrid!(Label(fig, "Microscope Mode", width = nothing, fontsize=20), menu)
+
+    global img_size = [16, 16]
+    global img_mid_x, img_mid_y = img_size .÷ 2
+
+    # Create sliders
+    z_slider = SliderGrid(
+        fig[4, 1:5],
+        (label = "polarization", range = 1:1:size(data_tirf,1), format = "{1} F", startvalue = size(data_tirf,1)),
+        (label = "xy Focus", range = 1:1:size(data_tirf[1],3), format = "{1} F", startvalue = round(Int,size(data_tirf[1],3)/2)),
+        (label = "xz focus", range = -img_size[1]:1:img_size[1], format = "{1} F", startvalue = 1),
+        (label = "zy Focus ", range = -img_size[2]:1:img_size[2], format = "{1} F", startvalue = 1),
+        tellheight = false)
+
+    # Create focus controls
+    grid_xy, buttons_xy, slider_xy, z_index_xy = create_focus_controls(fig, 3, 3, 2)
+    grid_xz, buttons_xz, slider_xz, z_index_xz = create_focus_controls(fig, 3, 5, 4)
+    grid_yz, buttons_yz, slider_yz, z_index_yz = create_focus_controls(fig, 3, 4, 3)
+
+    # Define listeners
+    img = create_image_listener(z_slider, menu, data_epi, data_tirf)
+    model_xy = create_model_listener(buttons_xy, z_slider, menu, model_epi, model_tirf, :xy, slider_xy, z_index_xy)
+    model_yz = create_model_listener(buttons_xz, z_slider, menu, model_epi, model_tirf, :xz, slider_xz, z_index_xz)
+    model_xz = create_model_listener(buttons_yz, z_slider, menu, model_epi, model_tirf, :yz, slider_yz, z_index_yz)
+
+    tittle_graph_data = create_title_listener(z_slider, menu, names_files_epi_data, names_files_tirf_data)
+    tittle_graph_model = create_title_listener(z_slider, menu, names_files_epi_model, names_files_tirf_model)
+
+    # Create axes
+    ax1 = create_axis(fig[1:2, 1:2], title = tittle_graph_data, sz_title = 30)
+    ax2 = create_axis(fig[1,3], title = "XY data", subtitle = tittle_graph_data)
+    ax3 = create_axis(fig[1,4], title = "XZ data", subtitle = tittle_graph_data)
+    ax4 = create_axis(fig[1,5], title = "YZ data", subtitle = tittle_graph_data)
+    ax5 = create_axis(fig[2,3], title = "XY model", subtitle = tittle_graph_model)
+    ax6 = create_axis(fig[2,4], title = "XZ model", subtitle = tittle_graph_model)
+    ax7 = create_axis(fig[2,5], title = "YZ model", subtitle = tittle_graph_model)
+
+    # Mouse interaction
+    register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
+        if event.type === MouseEventTypes.leftclick
+            println("$(event.data)")
+            push!(mouse_pos[], event.data)
+            notify(mouse_pos) 
+        end
+    end
+
+    # Image update functions
+    img_xy = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :xy)
+    img_xz = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :xz)
+    img_yz = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :yz)
+
+    # Create heatmaps
+    heatmap!(ax1, img, colormap=:inferno)
+    heatmap!(ax2, img_xy, colormap=:inferno)
+    heatmap!(ax3, img_xz, colormap=:inferno)
+    heatmap!(ax4, img_yz, colormap=:inferno)
+    heatmap!(ax5, model_xy, colormap=:inferno)
+    heatmap!(ax6, model_xz, colormap=:inferno)
+    heatmap!(ax7, model_yz, colormap=:inferno)
+
+    # Hide decorations for all axes
+    for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]
+        hidedecorations!(ax)
+    end
+
+    # Display the figure
+    display(fig)
+end
+
+# Run the main function
+main()
