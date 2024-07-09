@@ -369,8 +369,8 @@ function create_file_navigator_and_main_view()
     menu = Menu(fig, options = microscope_options, default = "EPI")
     fig[4,1:2] = vgrid!(Label(fig, "Microscope Mode", width = nothing, fontsize=20), menu)
 
-    img_size = [16, 16]
-    img_mid_x, img_mid_y = img_size .÷ 2
+    global img_size = [16, 16]
+    global img_mid_x, img_mid_y = img_size .÷ 2
 
     z_slider = SliderGrid(
         fig[5, 1:5],

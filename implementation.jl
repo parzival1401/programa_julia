@@ -1,6 +1,7 @@
 using GLMakie, FilePathsBase, MAT, Statistics, JLD2
 
-# Define a mutable struct to hold the state of the file navigator
+const microscope_options = ["EPI", "TIRF"]
+
 mutable struct NavigatorState
     current_path::String
     saved_data_path::String
@@ -61,7 +62,6 @@ function load_jld2_data(folder, names, variable)
                 var = file[variable]
                 println("Original data type: ", typeof(var))
                 if var isa Array{Any, 3}
-                    # Convert Array{Any, 3} to Array{Float64, 3}
                     converted_var = Array{Float64}(var)
                     push!(data, converted_var)
                     println("Converted data size: ", size(converted_var))
@@ -86,10 +86,8 @@ function create_focus_controls(fig, row, col, z_slider_index)
     grid = GridLayout(tellwidth=false)
     fig[row, col] = grid
     buttons = grid[3:4,1] = [Button(fig, label="+1 focus", width=150), Button(fig, label="-1 focus", width=150)]
-    slider = Slider(grid[5,1], range = 0:1:1)
-    Label(grid[5,0], "no snap", justification = :left)
-    Label(grid[5,2], "snap", justification = :left)
-    return grid, buttons, slider, z_slider_index
+    snap_menu = Menu(grid[5,1], options = ["No snap", "Snap"], default="No snap")
+    return grid, buttons, snap_menu, z_slider_index
 end
 
 function create_image_listener(z_slider, menu, data_epi, data_tirf)
@@ -134,7 +132,7 @@ function create_axis(fig; title="", subtitle="", sz_title=22, sz_subtitle=17, ya
     )
 end
 
-function create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, dim)
+function create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, dim, img_mid_x, img_mid_y)
     return lift(mouse_pos, z_slider.sliders[dim == :xy ? 2 : (dim == :xz ? 3 : 4)].value, z_slider.sliders[1].value, menu.selection, data_epi, data_tirf) do x, focus, angle, mode, epi_data, tirf_data
         mouse_x, mouse_y = trunc.(Int, x[end])
         data = mode == microscope_options[1] ? epi_data : tirf_data
@@ -166,7 +164,15 @@ function create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, dim
     end
 end
 
-function create_model_listener(buttons, z_slider, menu, model_epi, model_tirf, dim, snap_slider, z_index)
+function get_model_size(model_arr, img_size)
+    size_x, size_y, size_z = size(model_arr)
+    midle_point_z = round(Int, size_z/2)
+    midle_point_x = round(Int, size_x/2)
+    midle_point_y = round(Int, size_y/2)
+    return size_x, size_y, size_z, midle_point_x, midle_point_y, midle_point_z
+end
+
+function create_model_listener(buttons, z_slider, menu, model_epi, model_tirf, dim, snap_menu, z_index, data_offset)
     button_offset = Observable(0)
     
     on(buttons[1].clicks) do n
@@ -177,7 +183,7 @@ function create_model_listener(buttons, z_slider, menu, model_epi, model_tirf, d
         button_offset[] -= 1
     end
 
-    return lift(button_offset, z_slider.sliders[1].value, menu.selection, snap_slider.value, z_slider.sliders[z_index].value, model_epi, model_tirf) do offset, angle, mode, snap, slider_value, epi_model, tirf_model
+    return lift(button_offset, z_slider.sliders[1].value, menu.selection, snap_menu.selection, z_slider.sliders[z_index].value, model_epi, model_tirf, data_offset) do offset, angle, mode, snap, slider_value, epi_model, tirf_model, data_offset_value
         model = mode == microscope_options[1] ? epi_model : tirf_model
         println("Model type: ", typeof(model))
         println("Model size: ", size(model))
@@ -186,22 +192,14 @@ function create_model_listener(buttons, z_slider, menu, model_epi, model_tirf, d
             return zeros(10, 10)  # Return a default empty image if model is not available
         end
         
-        size_x, size_y, size_z, midle_point_x, midle_point_y, midle_point_z = get_model_size(model, angle, img_size)
+        size_x, size_y, size_z, midle_point_x, midle_point_y, midle_point_z = get_model_size(model[angle], img_size)
         
         max_index = dim == :xy ? size_z : (dim == :xz ? size_y : size_x)
         
-        effective_point = if dim == :xy
-            midle_point_z
-        elseif dim == :xz
-            midle_point_y
-        else # yz
-            midle_point_x
-        end
-
-        if snap == 1
-            effective_point = slider_value
+        if snap == "Snap"
+            effective_point = clamp(slider_value + data_offset_value, 1, max_index)
         else
-            effective_point = clamp(effective_point + offset, 1, max_index)
+            effective_point = clamp(midle_point_z + offset, 1, max_index)
         end
         
         slice = if dim == :xy
@@ -221,7 +219,7 @@ function create_model_listener(buttons, z_slider, menu, model_epi, model_tirf, d
     end
 end
 
-function load_and_update_data(path, names_files_epi_data, names_files_tirf_data, data_epi, data_tirf, z_slider)
+function load_and_update_data(path, names_files_epi_data, names_files_tirf_data, data_epi, data_tirf, z_slider, data_model_offset)
     names_files_data_all = filter_files(path, r"epi|TIRF|tirf|EPI")
     names_files_epi_data[] = filter_files(path, r"epi|EPI")
     names_files_tirf_data[] = filter_files(path, r"tirf|TIRF")
@@ -236,12 +234,18 @@ function load_and_update_data(path, names_files_epi_data, names_files_tirf_data,
     println("EPI data size: ", size(data_epi[]))
     println("TIRF data size: ", size(data_tirf[]))
 
+    data_middle_slice = 0
     if !isempty(data_epi[])
         z_slider.sliders[1].range[] = 1:1:length(data_epi[])
         z_slider.sliders[2].range[] = 1:1:size(data_epi[][1], 3)
         z_slider.sliders[1].value[] = 1
-        z_slider.sliders[2].value[] = 1
+        data_middle_slice = size(data_epi[][1], 3) ÷ 2
+        z_slider.sliders[2].value[] = data_middle_slice
     end
+
+    # Update data_model_offset
+    model_middle_slice = data_middle_slice + data_model_offset[]
+    data_model_offset[] = model_middle_slice - data_middle_slice
 
     # Notify observables
     notify(data_epi)
@@ -250,7 +254,7 @@ function load_and_update_data(path, names_files_epi_data, names_files_tirf_data,
     notify(names_files_tirf_data)
 end
 
-function load_and_update_model(path, names_files_epi_model, names_files_tirf_model, model_epi, model_tirf)
+function load_and_update_model(path, names_files_epi_model, names_files_tirf_model, model_epi, model_tirf, data_model_offset)
     names_files_model_all = filter_files(path, r"epi|TIRF")
     names_files_epi_model[] = filter_files(path, r"epi|EPI")
     names_files_tirf_model[] = filter_files(path, r"tirf|TIRF")
@@ -271,6 +275,15 @@ function load_and_update_model(path, names_files_epi_model, names_files_tirf_mod
     println("EPI model size: ", size.(model_epi[]))
     println("TIRF model size: ", size.(model_tirf[]))
 
+    model_middle_slice = 0
+    if !isempty(model_epi[])
+        model_middle_slice = size(model_epi[][1], 3) ÷ 2
+    end
+
+    # Update data_model_offset
+    data_middle_slice = model_middle_slice - data_model_offset[]
+    data_model_offset[] = model_middle_slice - data_middle_slice
+
     # Notify observables
     notify(model_epi)
     notify(model_tirf)
@@ -279,21 +292,17 @@ function load_and_update_model(path, names_files_epi_model, names_files_tirf_mod
 end
 
 function create_file_navigator_and_main_view()
-    # Create the main figure
     fig = Figure(size = (1725, 1000))
     
-    # Initialize the navigator state
     state = NavigatorState(homedir())
     
-    # Create the file navigator layout
     menu_layout = fig[1, 1:5] = GridLayout()
-    path_label = Label(menu_layout[1, 1:2], "Current path: $(state.current_path)", tellwidth=false,halign=:left)
-    data_path_label = Label(menu_layout[1,2:3], "Data path: None", tellwidth=false,halign=:right)
-    model_path_label = Label(menu_layout[1,4:5], "Model path: None", tellwidth=false,halign=:center)
+    path_label = Label(menu_layout[1, 1:2], "Current path: $(state.current_path)", tellwidth=false, halign=:left)
+    data_path_label = Label(menu_layout[1,2:3], "Data path: None", tellwidth=false, halign=:right)
+    model_path_label = Label(menu_layout[1,4:5], "Model path: None", tellwidth=false, halign=:center)
     
     drive_menu = Menu(menu_layout[2, 1], options = get_available_drives(), tellwidth = false)
     main_menu = Menu(menu_layout[2, 2], options = [""], tellwidth = false)
-
     
     save_data_button = Button(menu_layout[2, 3], label = "Save Data Path", tellwidth = false)
     save_model_button = Button(menu_layout[2, 5], label = "Save Model Path", tellwidth = false)
@@ -314,7 +323,6 @@ function create_file_navigator_and_main_view()
             end
         end
         
-        # Clear the selection after handling
         main_menu.selection[] = nothing
     end
 
@@ -324,9 +332,9 @@ function create_file_navigator_and_main_view()
 
     function update_main_menu()
         directories, files = get_directory_contents(state.current_path)
-        menu_options = [".."]  # Always add the "Up" option at the beginning
+        menu_options = [".."]
         append!(menu_options, isempty(directories) ? files : directories)
-        if length(menu_options) == 1  # Only "Up" option
+        if length(menu_options) == 1
             push!(menu_options, "<Empty directory>")
         end
         main_menu.options[] = menu_options
@@ -341,9 +349,6 @@ function create_file_navigator_and_main_view()
         end
     end
 
-   
-
-    # Function to update the drive menu
     function update_drive_menu()
         drive_menu.options[] = get_available_drives()
         on(drive_menu.selection) do selected_drive
@@ -355,41 +360,18 @@ function create_file_navigator_and_main_view()
         end
     end
 
-   
-    # Set up the "Save Data Path" button functionality
-on(save_data_button.clicks) do n
-    state.saved_data_path = state.current_path
-    data_path_label.text[] = "Data path: $(state.saved_data_path)"
-    println("Data path saved: $(state.saved_data_path)")
-    load_and_update_data(state.saved_data_path, names_files_epi_data, names_files_tirf_data, data_epi, data_tirf, z_slider)
-end
-
-    # Set up the "Save Model Path" button functionality
-    on(save_model_button.clicks) do n
-        state.saved_model_path = state.current_path
-        model_path_label.text[] = "Model path: $(state.saved_model_path)"
-        println("Model path saved: $(state.saved_model_path)")
-        load_and_update_model(state.saved_model_path, names_files_epi_model, names_files_tirf_model, model_epi, model_tirf)
-    end
-
-    # Initialize the drive and main menus
     update_drive_menu()
     update_main_menu()
 
-    # Initialize mouse position observable
     mouse_pos = Observable(Point2f[])
     push!(mouse_pos[], [50,50])
 
-    # Set up microscope mode selection
-    global microscope_options = ["EPI", "TIRF"]
     menu = Menu(fig, options = microscope_options, default = "EPI")
     fig[4,1:2] = vgrid!(Label(fig, "Microscope Mode", width = nothing, fontsize=20), menu)
 
-    # Define global image size variables
     global img_size = [16, 16]
     global img_mid_x, img_mid_y = img_size .÷ 2
 
-    # Create sliders for various controls
     z_slider = SliderGrid(
         fig[5, 1:5],
         (label = "polarization", range = 1:1:1, format = "{1} F", startvalue = 1),
@@ -398,12 +380,10 @@ end
         (label = "zy Focus ", range = -img_size[2]:1:img_size[2], format = "{1} F", startvalue = 1),
         tellheight = false)
 
-    # Create focus controls for different views
-    grid_xy, buttons_xy, slider_xy, z_index_xy = create_focus_controls(fig, 4, 3, 2)
-    grid_xz, buttons_xz, slider_xz, z_index_xz = create_focus_controls(fig, 4, 4, 4)
-    grid_yz, buttons_yz, slider_yz, z_index_yz = create_focus_controls(fig, 4, 5, 3)
+    grid_xy, buttons_xy, snap_menu_xy, z_index_xy = create_focus_controls(fig, 4, 3, 2)
+    grid_xz, buttons_xz, snap_menu_xz, z_index_xz = create_focus_controls(fig, 4, 4, 3)
+    grid_yz, buttons_yz, snap_menu_yz, z_index_yz = create_focus_controls(fig, 4, 5, 4)
 
-    # Initialize data observables
     data_epi = Observable(Vector{Array{Float64, 3}}())
     data_tirf = Observable(Vector{Array{Float64, 3}}())
     model_epi = Observable{Vector{Array{Float64, 3}}}(Vector{Array{Float64, 3}}())
@@ -413,7 +393,6 @@ end
     names_files_epi_model = Observable(String[])
     names_files_tirf_model = Observable(String[])
 
-    # Create image and model listeners
     img = create_image_listener(z_slider, menu, data_epi, data_tirf)
     img_xy = Observable(zeros(16, 16))
     img_xz = Observable(zeros(16, 21))
@@ -422,11 +401,9 @@ end
     model_xz = Observable(zeros(16, 21))
     model_yz = Observable(zeros(16, 21))
 
-    # Create title listeners
     tittle_graph_data = create_title_listener(z_slider, menu, names_files_epi_data, names_files_tirf_data)
     tittle_graph_model = create_title_listener(z_slider, menu, names_files_epi_model, names_files_tirf_model)
 
-    # Create axes for all plots
     ax1 = create_axis(fig[2:3, 1:2], title = tittle_graph_data, sz_title = 30)
     ax2 = create_axis(fig[2,3], title = "XY data", subtitle = tittle_graph_data)
     ax3 = create_axis(fig[2,4], title = "XZ data", subtitle = tittle_graph_data)
@@ -435,7 +412,6 @@ end
     ax6 = create_axis(fig[3,4], title = "XZ model", subtitle = tittle_graph_model)
     ax7 = create_axis(fig[3,5], title = "YZ model", subtitle = tittle_graph_model)
 
-    # Create heatmaps for all plots
     heatmap!(ax1, img, colormap=:inferno)
     heatmap!(ax2, img_xy, colormap=:inferno)
     heatmap!(ax3, img_xz, colormap=:inferno)
@@ -444,7 +420,6 @@ end
     heatmap!(ax6, model_xz, colormap=:inferno)
     heatmap!(ax7, model_yz, colormap=:inferno)
 
-    # Set up mouse interaction for the main plot
     register_interaction!(ax1, :my_interaction) do event::MouseEvent, axis
         if event.type === MouseEventTypes.leftclick
             println("$(event.data)")
@@ -453,12 +428,10 @@ end
         end
     end
 
-    # Create image listeners for different views
-    img_xy_listener = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :xy)
-    img_xz_listener = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :xz)
-    img_yz_listener = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :yz)
+    img_xy_listener = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :xy, img_mid_x, img_mid_y)
+    img_xz_listener = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :xz, img_mid_x, img_mid_y)
+    img_yz_listener = create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, :yz, img_mid_x, img_mid_y)
 
-    # Update image observables when listeners change
     on(img_xy_listener) do val
         img_xy[] = val
     end
@@ -469,12 +442,23 @@ end
         img_yz[] = val
     end
 
-    # Create model listeners for different views
-    model_xy_listener = create_model_listener(buttons_xy, z_slider, menu, model_epi, model_tirf, :xy, slider_xy, z_index_xy)
-    model_xz_listener = create_model_listener(buttons_xz, z_slider, menu, model_epi, model_tirf, :xz, slider_xz, z_index_xz)
-    model_yz_listener = create_model_listener(buttons_yz, z_slider, menu, model_epi, model_tirf, :yz, slider_yz, z_index_yz)
+    data_middle_slice = 0
+    model_middle_slice = 0
 
-    # Update model observables when listeners change
+    if !isempty(data_epi[])
+        data_middle_slice = size(data_epi[][1], 3) ÷ 2
+    end
+
+    if !isempty(model_epi[])
+        model_middle_slice = size(model_epi[][1], 3) ÷ 2
+    end
+
+    data_model_offset = Observable(model_middle_slice - data_middle_slice)
+
+    model_xy_listener = create_model_listener(buttons_xy, z_slider, menu, model_epi, model_tirf, :xy, snap_menu_xy, 2, data_model_offset)
+    model_xz_listener = create_model_listener(buttons_xz, z_slider, menu, model_epi, model_tirf, :xz, snap_menu_xz, 3, data_model_offset)
+    model_yz_listener = create_model_listener(buttons_yz, z_slider, menu, model_epi, model_tirf, :yz, snap_menu_yz, 4, data_model_offset)
+
     on(model_xy_listener) do val
         model_xy[] = val
     end
@@ -485,12 +469,42 @@ end
         model_yz[] = val
     end
 
-    # Hide decorations for all axes
+    on(z_slider.sliders[2].value) do val
+        if snap_menu_xy.selection[] == "Snap"
+            notify(model_xy_listener)
+        end
+    end
+
+    on(z_slider.sliders[3].value) do val
+        if snap_menu_xz.selection[] == "Snap"
+            notify(model_xz_listener)
+        end
+    end
+
+    on(z_slider.sliders[4].value) do val
+        if snap_menu_yz.selection[] == "Snap"
+            notify(model_yz_listener)
+        end
+    end
+
     for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]
         hidedecorations!(ax)
     end
 
-    # Display the figure
+    on(save_data_button.clicks) do n
+        state.saved_data_path = state.current_path
+        data_path_label.text[] = "Data path: $(state.saved_data_path)"
+        println("Data path saved: $(state.saved_data_path)")
+        load_and_update_data(state.saved_data_path, names_files_epi_data, names_files_tirf_data, data_epi, data_tirf, z_slider, data_model_offset)
+    end
+
+    on(save_model_button.clicks) do n
+        state.saved_model_path = state.current_path
+        model_path_label.text[] = "Model path: $(state.saved_model_path)"
+        println("Model path saved: $(state.saved_model_path)")
+        load_and_update_model(state.saved_model_path, names_files_epi_model, names_files_tirf_model, model_epi, model_tirf, data_model_offset)
+    end
+
     display(fig)
 end
 
