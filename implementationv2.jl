@@ -90,23 +90,83 @@ function create_focus_controls(fig, row, col, z_slider_index)
     return grid, buttons, snap_menu, z_slider_index
 end
 
-function create_image_listener(z_slider, menu, data_epi, data_tirf)
+function calculate_center_of_mass(image)
+    total_mass = sum(image)
+    if total_mass == 0
+        return size(image) .÷ 2
+    end
+    
+    y_indices, x_indices = axes(image)
+    com_y = sum(y * image[y, x] for y in y_indices, x in x_indices) / total_mass
+    com_x = sum(x * image[y, x] for y in y_indices, x in x_indices) / total_mass
+    
+    return round(Int, com_y), round(Int, com_x)
+end
+function create_main_image_listener(z_slider, menu, data_epi, data_tirf)
     return lift(z_slider.sliders[2].value, z_slider.sliders[1].value, menu.selection, data_epi, data_tirf) do focus, angle, mode, epi_data, tirf_data
         data = mode == microscope_options[1] ? epi_data : tirf_data
-        if isempty(data)
-            println("Data is empty")
-            return zeros(256, 256)
+        
+        if isempty(data) || angle > length(data)
+            return zeros(256, 256)  # or any default size you prefer
         end
-        if angle > length(data)
-            println("Angle out of bounds: ", angle, " > ", length(data))
-            return zeros(256, 256)
+        
+        current_data = data[angle]
+        size_x, size_y, size_z = size(current_data)
+        
+        focus = clamp(focus, 1, size_z)
+        return current_data[:, :, focus]
+    end
+end
+
+function create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, dim, img_mid_x, img_mid_y)
+    return lift(mouse_pos, z_slider.sliders[dim == :xy ? 2 : (dim == :xz ? 3 : 4)].value, z_slider.sliders[1].value, menu.selection, data_epi, data_tirf) do x, focus, angle, mode, epi_data, tirf_data
+        mouse_x, mouse_y = trunc.(Int, x[end])
+        data = mode == microscope_options[1] ? epi_data : tirf_data
+        
+        if isempty(data) || angle > length(data)
+            return zeros(2*img_mid_x, 2*img_mid_y)
         end
-        if focus > size(data[angle], 3)
-            println("Focus out of bounds: ", focus, " > ", size(data[angle], 3))
-            return zeros(256, 256)
+        
+        current_data = data[angle]
+        size_x, size_y, size_z = size(current_data)
+        
+        if dim == :xy
+            focus = clamp(focus, 1, size_z)
+            full_slice = current_data[:, :, focus]
+            
+            # Define an initial region of interest around the click
+            roi_size = min(size_x, size_y, 4*img_mid_x)  # Adjust this size as needed
+            x_i = clamp(mouse_x - roi_size÷2, 1, size_x - roi_size + 1)
+            x_f = x_i + roi_size - 1
+            y_i = clamp(mouse_y - roi_size÷2, 1, size_y - roi_size + 1)
+            y_f = y_i + roi_size - 1
+            
+            initial_roi = full_slice[x_i:x_f, y_i:y_f]
+            
+            # Calculate local center of mass
+            local_com_y, local_com_x = calculate_center_of_mass(initial_roi)
+            
+            # Adjust ROI to center on local center of mass
+            com_x = x_i + local_com_x - 1
+            com_y = y_i + local_com_y - 1
+            
+            final_x_i = clamp(com_x - img_mid_x, 1, size_x - 2*img_mid_x + 1)
+            final_x_f = final_x_i + 2*img_mid_x - 1
+            final_y_i = clamp(com_y - img_mid_y, 1, size_y - 2*img_mid_y + 1)
+            final_y_f = final_y_i + 2*img_mid_y - 1
+            
+            return full_slice[final_x_i:final_x_f, final_y_i:final_y_f]
+        elseif dim == :xz
+            y_focus = clamp(mouse_y, 1, size_y)
+            x_i = max(1, mouse_x - img_mid_x)
+            x_f = min(size_x, mouse_x + img_mid_x - 1)
+            return current_data[x_i:x_f, y_focus, :]
+        else  # yz
+            x_focus = clamp(mouse_x, 1, size_x)
+            y_i = max(1, mouse_y - img_mid_y)
+            y_f = min(size_y, mouse_y + img_mid_y - 1)
+            return current_data[x_focus, y_i:y_f, :]
         end
-        println("Returning slice: ", size(data[angle][:,:,focus]))
-        return data[angle][:,:,focus]
     end
 end
 
@@ -130,38 +190,6 @@ function create_axis(fig; title="", subtitle="", sz_title=22, sz_subtitle=17, ya
         titlesize = sz_title,
         subtitlesize = sz_subtitle
     )
-end
-
-function create_img_listener(mouse_pos, z_slider, menu, data_epi, data_tirf, dim, img_mid_x, img_mid_y)
-    return lift(mouse_pos, z_slider.sliders[dim == :xy ? 2 : (dim == :xz ? 3 : 4)].value, z_slider.sliders[1].value, menu.selection, data_epi, data_tirf) do x, focus, angle, mode, epi_data, tirf_data
-        mouse_x, mouse_y = trunc.(Int, x[end])
-        data = mode == microscope_options[1] ? epi_data : tirf_data
-        
-        if isempty(data) || angle > length(data)
-            return zeros(2*img_mid_x, 2*img_mid_y)
-        end
-        
-        current_data = data[angle]
-        size_x, size_y, size_z = size(current_data)
-        
-        x_ax, y_ax = img_size .÷ 2
-        y_i = max(1, mouse_y - y_ax)
-        y_f = min(size_y, mouse_y + y_ax)
-        x_i = max(1, mouse_x - x_ax)
-        x_f = min(size_x, mouse_x + x_ax)
-        println("yi:$y_i, yf;$y_f, xi;$x_i, xf;$x_f ")
-        if dim == :xy
-            focus = clamp(focus, 1, size_z)
-            println(focus)
-            return current_data[x_i:x_f, y_i:y_f, focus]
-        elseif dim == :xz
-            y_focus = clamp(mouse_y + focus, 1, size_y)
-            return current_data[x_i:x_f, y_focus, :]
-        else  # yz
-            x_focus = clamp(mouse_x + focus, 1, size_x)
-            return current_data[x_focus, y_i:y_f, :]
-        end
-    end
 end
 
 function get_model_size(model_arr, img_size)
@@ -393,7 +421,7 @@ function create_file_navigator_and_main_view()
     names_files_epi_model = Observable(String[])
     names_files_tirf_model = Observable(String[])
 
-    img = create_image_listener(z_slider, menu, data_epi, data_tirf)
+    img = create_main_image_listener(z_slider, menu, data_epi, data_tirf)
     img_xy = Observable(zeros(16, 16))
     img_xz = Observable(zeros(16, 21))
     img_yz = Observable(zeros(16, 21))
