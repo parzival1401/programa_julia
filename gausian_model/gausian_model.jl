@@ -1,99 +1,3 @@
-using Distributions
-using LinearAlgebra
-using Random
-using CairoMakie
-using StatsBase
-
-function gaussian_mixture_em(data, K, max_iter=100, tol=1e-6)
-    N = length(data)
-    
-    # Initialize parameters
-    π = ones(K) / K
-    μ = randn(K)
-    σ = rand(K)
-    
-    log_likelihood_old = -Inf
-    
-    for iter in 1:max_iter
-        # E-step: Compute responsibilities
-        resp = zeros(N, K)
-        for k in 1:K
-            resp[:, k] = π[k] * pdf.(Normal(μ[k], σ[k]), data)
-        end
-        resp ./= sum(resp, dims=2)
-        
-        # M-step: Update parameters
-        Nk = sum(resp, dims=1)
-        π = Nk / N
-        for k in 1:K
-            μ[k] = sum(resp[:, k] .* data) / Nk[k]
-            σ[k] = sqrt(sum(resp[:, k] .* (data .- μ[k]).^2) / Nk[k])
-        end
-        
-        # Compute log-likelihood
-        log_likelihood = sum(log.(sum(π' .* pdf.(Normal.(μ, σ), data'), dims=1)))
-        
-        # Check convergence
-        if abs(log_likelihood - log_likelihood_old) < tol
-            break
-        end
-        log_likelihood_old = log_likelihood
-    end
-    
-    return π, μ, σ
-end
-
-# Generate sample data
-Random.seed!(123)
-true_μ = [-2.0, 2.0, 5.0]
-true_σ = [0.5, 1.0, 0.8]
-true_π = [0.3, 0.4, 0.3]
-K = length(true_μ)
-
-data = vcat([rand(Normal(true_μ[k], true_σ[k]), Int(1000 * true_π[k])) for k in 1:K]...)
-
-# Run EM algorithm
-estimated_π, estimated_μ, estimated_σ = gaussian_mixture_em(data, K)
-
-# Print results
-println("True parameters:")
-println("π = $true_π")
-println("μ = $true_μ")
-println("σ = $true_σ")
-println("\nEstimated parameters:")
-println("π = $estimated_π")
-println("μ = $estimated_μ")
-println("σ = $estimated_σ")
-
-# Plotting
-fig = Figure(size=(800, 600))
-ax = Axis(fig[1, 1], xlabel="Value", ylabel="Density")
-
-# Plot histogram of data
-hist!(ax, data, bins=50, normalization=:pdf, label="Data")
-
-# Plot true distributions
-x = range(minimum(data), maximum(data), length=1000)
-for k in 1:K
-    lines!(ax, x, pdf.(Normal(true_μ[k], true_σ[k]), x) .* true_π[k], 
-           color=:blue, linestyle=:dash, linewidth=2, 
-           label=k == 1 ? "True distributions" : nothing)
-end
-
-# Plot estimated distributions
-for k in 1:K
-    lines!(ax, x, pdf.(Normal(estimated_μ[k], estimated_σ[k]), x) .* estimated_π[k], 
-           color=:red, linewidth=2, 
-           label=k == 1 ? "Estimated distributions" : nothing)
-end
-
-axislegend(ax)
-display(fig)
-
-# Save the figure
-save("gaussian_mixture_model.png", fig)
-
-println("The plot has been saved as 'gaussian_mixture_model.png'")
 ####################################################
 ####################################################
 ####################################################
@@ -209,14 +113,10 @@ end
 axislegend(ax)
 display(fig)
 
-# Save the figure
-save("2d_gaussian_mixture_model.png", fig)
-
-println("The plot has been saved as '2d_gaussian_mixture_model.png'")
 
 
 
-######################################################
+
 ######################################################
 ######################################################
 
@@ -324,22 +224,22 @@ function find_optimal_clusters(data, max_K=10)
     return optimal_K, bic_values
 end
 
-# Generate sample data
+#
 Random.seed!(123)
-n_samples = 500000
-n_clusters = 6            # You can change this to any number you want
-n_features = 2  # For 2D data
+n_samples = 10000
+n_clusters = 3      
+n_features = 2  
 
 data, true_μ, true_Σ, true_π = create_gmm_data(n_samples, n_clusters, n_features)
 
-# Find optimal number of clusters
+
 optimal_K, bic_values = find_optimal_clusters(data)
 println("Optimal number of clusters: $optimal_K")
 
-# Run EM algorithm with optimal K
+
 estimated_π, estimated_μ, estimated_Σ, _ = gaussian_mixture_em_2d(data, optimal_K)
 
-# Print true and estimated parameters
+
 println("\nTrue parameters:")
 println("π = $true_π")
 println("μ = $true_μ")
@@ -349,24 +249,23 @@ println("π = $estimated_π")
 println("μ = $estimated_μ")
 println("Σ = $estimated_Σ")
 
-# Plotting
+
 fig = Figure(size=(1600, 600))
 
-# Plot BIC values
 ax1 = Axis(fig[1, 1], xlabel="Number of clusters (K)", ylabel="BIC",
            title="BIC vs Number of Clusters")
 scatter!(ax1, 1:length(bic_values), bic_values, color=:black, markersize=10)
 lines!(ax1, 1:length(bic_values), bic_values, color=:black)
 
-# Plot data and estimated clusters
+
 ax2 = Axis(fig[1, 2], xlabel="X", ylabel="Y",
            title="Data and Estimated Clusters (K = $optimal_K)")
 scatter!(ax2, data[:, 1], data[:, 2], color=:black, markersize=2, alpha=0.5, label="Data")
 
-# Plot estimated clusters
+
 for k in 1:optimal_K
     μ = estimated_μ[k]
-    Σ = estimated_Σ[k]
+    Σ = estimated_Σ[k] 
     
     θ = range(0, 2π, length=100)
     ellipse = [μ .+ sqrt.(eigvals(Σ)) .* eigvecs(Σ) * [cos(t), sin(t)] for t in θ]
@@ -377,7 +276,7 @@ for k in 1:optimal_K
     lines!(ax2, x, y, color=:red, linewidth=2, label=k == 1 ? "Estimated clusters" : nothing)
 end
 
-# Plot true clusters
+
 for k in 1:n_clusters
     μ = true_μ[k]
     Σ = true_Σ[k]
@@ -393,5 +292,7 @@ end
 
 axislegend(ax2)
 
-# Display the figure
+
 display(fig)
+###########################
+
